@@ -25,7 +25,7 @@ const curatedSongs: CuratedSong[] = [
 ];
 
 function getCuratedRecommendation(situation: string, mood: string, referenceSong?: string) {
-  const input = `${situation} ${mood}`.toLowerCase();
+  const input = `${situation} ${mood} ${referenceSong ?? ""}`.toLowerCase();
   const scored = curatedSongs.map((song, index) => ({
     song,
     index,
@@ -37,11 +37,12 @@ function getCuratedRecommendation(situation: string, mood: string, referenceSong
     : curatedSongs[Math.abs([...input].reduce((sum, character) => sum + character.charCodeAt(0), 0)) % curatedSongs.length];
   const hasReference = Boolean(referenceSong?.trim());
 
+  const hasMoment = Boolean(situation && mood);
   return {
     songTitle: selected.songTitle,
     artist: selected.artist,
-    shortReason: `${mood.trim()} 마음에 자연스럽게 스며들 곡이에요.`,
-    detailReason: `${situation.trim()}이라는 순간을 방해하지 않으면서도, 지금 느끼는 ${mood.trim()}의 결을 부드럽게 이어줄 한 곡으로 골랐어요.`,
+    shortReason: hasMoment ? `${mood.trim()} 마음에 자연스럽게 스며들 곡이에요.` : `좋아하는 곡의 여운을 이어줄 한 곡이에요.`,
+    detailReason: hasMoment ? `${situation.trim()}이라는 순간을 방해하지 않으면서도, 지금 느끼는 ${mood.trim()}의 결을 부드럽게 이어줄 한 곡으로 골랐어요.` : `“${referenceSong?.trim()}”에서 느껴지는 분위기를 출발점으로 삼아, 익숙함과 새로움이 함께 남는 곡을 골랐어요.`,
     moodLabel: selected.moodLabel,
     palette: selected.palette,
     similarity: hasReference ? "기준 곡처럼 감정선을 천천히 쌓아가는 분위기가 닮았어요." : null,
@@ -52,14 +53,17 @@ function getCuratedRecommendation(situation: string, mood: string, referenceSong
 export async function POST(request: Request) {
   try {
     const { situation, mood, referenceSong } = await request.json() as { situation?: string; mood?: string; referenceSong?: string };
-    if (!situation?.trim() || !mood?.trim()) return NextResponse.json({ error: "상황과 기분을 모두 알려주세요." }, { status: 400 });
+    const hasMoment = Boolean(situation?.trim() && mood?.trim());
+    const hasReference = Boolean(referenceSong?.trim());
+    if (!hasMoment && !hasReference) return NextResponse.json({ error: "상황과 기분, 또는 떠오르는 노래를 알려주세요." }, { status: 400 });
     const apiKey = process.env.GEMINI_API_KEY?.trim();
-    if (!apiKey) return NextResponse.json(getCuratedRecommendation(situation.trim(), mood.trim(), referenceSong));
+    if (!apiKey) return NextResponse.json(getCuratedRecommendation(situation?.trim() || "", mood?.trim() || "", referenceSong));
     const referenceInstruction = referenceSong?.trim() ? `기준 곡은 “${referenceSong.trim()}”이다. 실제로 식별 가능한 곡이면 비슷한 결을 참고하되 같은 아티스트는 피하라. similarity와 difference를 각각 한 문장으로 작성하라. 식별이 어렵다면 곡명과 가수를 확인해달라는 내용을 shortReason에 담아라.` : "기준 곡은 없다. similarity와 difference는 null로 반환하라.";
-    const prompt = `너는 음악 큐레이터다. 사용자의 현재 순간에 어울리는 실제로 존재하는 노래 딱 한 곡을 추천한다.\n상황: ${situation.trim()}\n기분: ${mood.trim()}\n${referenceInstruction}\n\n한국어로 답하고, 다음 JSON 객체만 출력하라. 마크다운과 코드펜스는 쓰지 마라.\n{"songTitle":"정확한 곡명","artist":"정확한 아티스트","shortReason":"14~28자의 자연스러운 한 줄","detailReason":"입력한 상황과 기분을 직접 연결한 1~2문장","moodLabel":"결과를 표현하는 2~5단어","palette":"nocturne 또는 sunrise 또는 warm","similarity":null 또는 한 문장,"difference":null 또는 한 문장}\npalette는 몽환적·차분함이면 nocturne, 밝고 경쾌하면 sunrise, 포근하고 잔잔하면 warm으로 정하라. 곡명이나 가수를 확신할 수 없으면 유명하고 식별 가능한 다른 곡을 선택하라.`;
+    const momentInstruction = hasMoment ? `상황: ${situation!.trim()}\n기분: ${mood!.trim()}` : "상황과 기분 입력은 없고, 기준 곡에서 출발해 새로운 한 곡을 찾는다.";
+    const prompt = `너는 음악 큐레이터다. 사용자의 입력에 어울리는 실제로 존재하는 노래 딱 한 곡을 추천한다.\n${momentInstruction}\n${referenceInstruction}\n\n한국어로 답하고, 다음 JSON 객체만 출력하라. 마크다운과 코드펜스는 쓰지 마라.\n{"songTitle":"정확한 곡명","artist":"정확한 아티스트","shortReason":"14~28자의 자연스러운 한 줄","detailReason":"입력과 추천 이유를 직접 연결한 1~2문장","moodLabel":"결과를 표현하는 2~5단어","palette":"nocturne 또는 sunrise 또는 warm","similarity":null 또는 한 문장,"difference":null 또는 한 문장}\npalette는 몽환적·차분함이면 nocturne, 밝고 경쾌하면 sunrise, 포근하고 잔잔하면 warm으로 정하라. 곡명이나 가수를 확신할 수 없으면 유명하고 식별 가능한 다른 곡을 선택하라.`;
     const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent", { method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.85, maxOutputTokens: 700, responseMimeType: "application/json" } }) });
     if (!response.ok) {
-      if (response.status === 429) return NextResponse.json(getCuratedRecommendation(situation.trim(), mood.trim(), referenceSong));
+      if (response.status === 429) return NextResponse.json(getCuratedRecommendation(situation?.trim() || "", mood?.trim() || "", referenceSong));
       throw new Error(`Gemini request failed: ${response.status}`);
     }
     const data = await response.json() as { candidates?: Array<{ content?: { parts?: GeminiPart[] } }> };

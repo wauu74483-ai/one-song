@@ -4,12 +4,15 @@ import { useState } from "react";
 import { ArrowLeft, ArrowUpRight, Check, Disc3, Headphones, LoaderCircle, Music2, RotateCcw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 type Palette = "nocturne" | "sunrise" | "warm";
+type RecommendationMode = "moment" | "song";
 type Recommendation = { songTitle: string; artist: string; shortReason: string; detailReason: string; moodLabel: string; palette: Palette; similarity?: string | null; difference?: string | null };
 
 const situationExamples = ["밤 산책", "쉬는 시간", "집으로 가는 길"];
 const moodExamples = ["차분함", "산뜻함", "포근함"];
+const songExamples = ["Space Song — Beach House", "밤편지 — 아이유", "Ditto — NewJeans"];
 const paletteStyles: Record<Palette, { page: string; glow: string; ink: string; soft: string; accent: string }> = {
   nocturne: { page: "from-[#101126] via-[#171833] to-[#25214a]", glow: "bg-[#a99af5]", ink: "text-[#f7f3ff]", soft: "text-[#c9c3e8]", accent: "bg-[#b8a9ff] text-[#18132d] hover:bg-[#cabfff]" },
   sunrise: { page: "from-[#fff6de] via-[#ffe6c5] to-[#ffb98d]", glow: "bg-[#ff6f61]", ink: "text-[#3f201b]", soft: "text-[#78544a]", accent: "bg-[#ef604f] text-white hover:bg-[#dc5141]" },
@@ -17,13 +20,16 @@ const paletteStyles: Record<Palette, { page: string; glow: string; ink: string; 
 };
 
 export default function Home() {
+  const [mode, setMode] = useState<RecommendationMode>("moment");
   const [situation, setSituation] = useState("");
   const [mood, setMood] = useState("");
   const [referenceSong, setReferenceSong] = useState("");
   const [recommendation, setRecommendation] = useState<Recommendation | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const canSubmit = situation.trim().length > 0 && mood.trim().length > 0 && !loading;
+  const canSubmit = mode === "moment"
+    ? situation.trim().length > 0 && mood.trim().length > 0 && !loading
+    : referenceSong.trim().length > 0 && !loading;
   const colors = recommendation ? paletteStyles[recommendation.palette] : paletteStyles.nocturne;
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -32,7 +38,7 @@ export default function Home() {
     setLoading(true);
     setError("");
     try {
-      const response = await fetch("/api/recommend", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ situation: situation.trim(), mood: mood.trim(), referenceSong: referenceSong.trim() }) });
+      const response = await fetch("/api/recommend", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(mode === "moment" ? { situation: situation.trim(), mood: mood.trim() } : { referenceSong: referenceSong.trim() }) });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || "추천을 가져오지 못했어요.");
       setRecommendation(body);
@@ -41,7 +47,7 @@ export default function Home() {
     } finally { setLoading(false); }
   }
 
-  function resetAll() { setRecommendation(null); setSituation(""); setMood(""); setReferenceSong(""); setError(""); }
+  function resetAll() { setRecommendation(null); setMode("moment"); setSituation(""); setMood(""); setReferenceSong(""); setError(""); }
 
   if (recommendation) {
     const searchUrl = `https://music.youtube.com/search?q=${encodeURIComponent(`${recommendation.songTitle} ${recommendation.artist}`)}`;
@@ -100,13 +106,26 @@ export default function Home() {
             <div className="mt-10 hidden items-center gap-4 text-sm text-[#77737d] lg:flex"><div className="flex -space-x-2">{["#171830", "#f06a52", "#b58a62"].map((color) => <span key={color} className="h-8 w-8 rounded-full border-2 border-[#f4f0e8]" style={{ background: color }} />)}</div><span>곡의 무드에 맞춰<br />화면도 함께 변해요</span></div>
           </div>
           <form onSubmit={handleSubmit} className="rounded-[2rem] border border-white/80 bg-white/75 p-5 shadow-[0_32px_80px_rgba(59,49,38,.14)] backdrop-blur-xl sm:p-8">
-            <div className="flex items-start justify-between gap-4 border-b border-[#24232d]/10 pb-6"><div><p className="text-sm font-bold text-[#f05e47]">01 — 지금의 순간</p><h2 className="mt-1 text-2xl font-bold tracking-tight">무엇을 듣고 싶나요?</h2></div><Disc3 className="h-9 w-9 text-[#302e39]" /></div>
-            <FieldGroup label="지금 어떤 상황인가요?" htmlFor="situation" examples={situationExamples} value={situation} onChange={setSituation} placeholder="예: 과제를 끝내고 집으로 걷는 중" />
-            <FieldGroup label="어떤 기분인가요?" htmlFor="mood" examples={moodExamples} value={mood} onChange={setMood} placeholder="예: 후련한데 조금 지쳤어요" />
-            <div className="mt-7"><div className="flex items-baseline justify-between gap-3"><label htmlFor="reference" className="text-base font-bold">떠오르는 노래가 있나요?</label><span className="text-xs font-semibold text-[#98939c]">선택</span></div><p className="mt-1 text-sm text-[#77727c]">비슷한 결을 원한다면 곡명과 가수를 적어주세요.</p><Input id="reference" value={referenceSong} onChange={(event) => setReferenceSong(event.target.value)} placeholder="예: Space Song — Beach House" className="mt-3 h-12 rounded-xl border-[#dad5cc] bg-white/80 px-4 text-base shadow-none focus-visible:border-[#f05e47] focus-visible:ring-[#f05e47]/15" /></div>
+            <div className="flex items-start justify-between gap-4 border-b border-[#24232d]/10 pb-6"><div><p className="text-sm font-bold text-[#f05e47]">01 — 추천 방식</p><h2 className="mt-1 text-2xl font-bold tracking-tight">어디서 시작할까요?</h2></div><Disc3 className="h-9 w-9 text-[#302e39]" /></div>
+            <Tabs value={mode} onValueChange={(value) => { const nextMode = value as RecommendationMode; setMode(nextMode); setError(""); if (nextMode === "moment") setReferenceSong(""); else { setSituation(""); setMood(""); } }} className="mt-6">
+              <TabsList className="grid h-12 w-full grid-cols-2 rounded-xl bg-[#eeebe4] p-1">
+                <TabsTrigger value="moment" className="rounded-lg px-3 text-sm font-bold data-[state=active]:bg-white data-[state=active]:shadow-sm"><Sparkles /> 상황과 기분</TabsTrigger>
+                <TabsTrigger value="song" className="rounded-lg px-3 text-sm font-bold data-[state=active]:bg-white data-[state=active]:shadow-sm"><Music2 /> 떠오르는 노래</TabsTrigger>
+              </TabsList>
+              <TabsContent value="moment" className="mt-1">
+                <FieldGroup label="지금 어떤 상황인가요?" htmlFor="situation" examples={situationExamples} value={situation} onChange={setSituation} placeholder="예: 과제를 끝내고 집으로 걷는 중" />
+                <FieldGroup label="어떤 기분인가요?" htmlFor="mood" examples={moodExamples} value={mood} onChange={setMood} placeholder="예: 후련한데 조금 지쳤어요" />
+              </TabsContent>
+              <TabsContent value="song" className="mt-7">
+                <label htmlFor="reference" className="text-base font-bold">지금 떠오르는 노래</label>
+                <p className="mt-1 text-sm leading-6 text-[#77727c]">한 곡을 알려주면 닮은 점과 새로운 결을 함께 찾아드려요.</p>
+                <div className="mt-3 flex flex-wrap gap-2">{songExamples.map((song) => <button key={song} type="button" onClick={() => setReferenceSong(song)} className={`rounded-full border px-3.5 py-2 text-sm font-semibold transition ${referenceSong === song ? "border-[#24232d] bg-[#24232d] text-white shadow-sm" : "border-[#ddd8cf] bg-[#faf8f3] text-[#65616a] hover:border-[#f05e47] hover:text-[#d94c38]"}`}>{song}</button>)}</div>
+                <Input id="reference" value={referenceSong} onChange={(event) => setReferenceSong(event.target.value)} placeholder="곡명 — 아티스트" className="mt-3 h-12 rounded-xl border-[#dad5cc] bg-white/80 px-4 text-base shadow-none focus-visible:border-[#f05e47] focus-visible:ring-[#f05e47]/15" />
+              </TabsContent>
+            </Tabs>
             {error && <div role="alert" className="mt-6 rounded-xl border border-[#ef6b59]/25 bg-[#fff1ee] px-4 py-3 text-sm leading-6 text-[#9a392c]">{error} <button type="submit" className="ml-1 font-bold underline underline-offset-2">다시 시도</button></div>}
-            <Button type="submit" disabled={!canSubmit} size="lg" className="mt-8 h-14 w-full rounded-2xl bg-[#24232d] text-base font-bold text-white shadow-[0_12px_30px_rgba(36,35,45,.22)] hover:bg-[#3a3845] disabled:shadow-none">{loading ? <><LoaderCircle className="animate-spin" /> 곡을 찾고 있어요</> : <><Sparkles /> 한 곡 추천받기</>}</Button>
-            <p className="mt-4 flex items-center justify-center gap-1.5 text-center text-xs text-[#85818a]"><Check className="h-3.5 w-3.5" /> 입력한 순간과 감정의 결을 읽고 한 곡을 추천해요</p>
+            <Button type="submit" disabled={!canSubmit} size="lg" className="mt-8 h-14 w-full rounded-2xl bg-[#24232d] text-base font-bold text-white shadow-[0_12px_30px_rgba(36,35,45,.22)] hover:bg-[#3a3845] disabled:shadow-none">{loading ? <><LoaderCircle className="animate-spin" /> 곡을 찾고 있어요</> : <><Sparkles /> {mode === "moment" ? "지금에 맞는 한 곡" : "이 곡에서 이어질 한 곡"}</>}</Button>
+            <p className="mt-4 flex items-center justify-center gap-1.5 text-center text-xs text-[#85818a]"><Check className="h-3.5 w-3.5" /> {mode === "moment" ? "상황과 감정의 결을 읽어 추천해요" : "좋아하는 곡의 결을 새롭게 이어드려요"}</p>
           </form>
         </section>
       </div>
