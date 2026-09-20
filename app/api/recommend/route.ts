@@ -84,7 +84,7 @@ function curatedRecommendations(situation: string, mood: string, referenceSong: 
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
+    const body = await request.json() as Record<string, unknown>;
     const situation = typeof body.situation === "string" ? body.situation.trim() : "";
     const mood = typeof body.mood === "string" ? body.mood.trim() : "";
     const referenceSong = typeof body.referenceSong === "string" ? body.referenceSong.trim() : "";

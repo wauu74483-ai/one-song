@@ -58,10 +58,10 @@ export default function Home() {
         headers,
         body: JSON.stringify(mode === "moment" ? { situation: situation.trim(), mood: mood.trim() } : { referenceSong: referenceSong.trim() }),
       });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error || "추천을 가져오지 못했어요.");
+      const body = await response.json() as Record<string, unknown>;
+      if (!response.ok) throw new Error(typeof body.error === "string" ? body.error : "추천을 가져오지 못했어요.");
       if (!Array.isArray(body.recommendations) || body.recommendations.length < 2) throw new Error("추천 결과를 확인하지 못했어요.");
-      setRecommendations(body.recommendations);
+      setRecommendations(body.recommendations as Recommendation[]);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "잠시 후 다시 시도해주세요.");
       setErrorMode(mode);
