@@ -135,7 +135,7 @@ export default function Home() {
 
             <form onSubmit={(event) => recommend(event, "song")} className="rounded-[2rem] border border-[#343342] bg-[#24232d] p-5 text-white shadow-[0_28px_70px_rgba(36,35,45,.2)] sm:p-8">
               <div className="flex items-start justify-between gap-4 border-b border-white/10 pb-5"><div><p className="text-sm font-bold text-[#ff8a72]">노래 한 곡에서</p><h2 className="mt-1 text-2xl font-bold tracking-tight">떠오르는 노래가 있나요?</h2></div><Music2 className="h-8 w-8 text-[#ff8a72]" /></div>
-              <p className="mt-5 text-sm leading-6 text-white/65">곡명과 아티스트를 알려주면 닮은 점은 이어가고, 새로운 결을 더한 세 곡을 찾아드려요.</p>
+              <p className="mt-5 text-sm leading-6 text-white/65">곡명과 아티스트를 알려주면 장르·템포·에너지·악기와 보컬 질감을 살펴, 닮은 점은 이어가고 새로운 결을 더한 세 곡을 찾아드려요.</p>
               <div className="mt-4 flex flex-wrap gap-2">{songExamples.map((song) => <button key={song} type="button" onClick={() => setReferenceSong(song)} className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${referenceSong === song ? "border-[#ff8a72] bg-[#ff8a72] text-[#241c1b]" : "border-white/15 bg-white/5 text-white/70 hover:border-white/35"}`}>{song}</button>)}</div>
               <label htmlFor="referenceSong" className="sr-only">떠오르는 노래</label><Input id="referenceSong" value={referenceSong} onChange={(event) => setReferenceSong(event.target.value)} placeholder="곡명 — 아티스트" className="mt-3 h-12 rounded-xl border-white/15 bg-white/10 px-4 text-base text-white placeholder:text-white/35 focus-visible:border-[#ff8a72] focus-visible:ring-[#ff8a72]/20" />
               {errorMode === "song" && <ErrorMessage message={error} dark />}
