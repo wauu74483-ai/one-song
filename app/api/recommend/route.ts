@@ -1,15 +1,45 @@
 import { NextResponse } from "next/server";
 
 type Palette = "nocturne" | "sunrise" | "warm";
+type Song = { songTitle: string; artist: string; palette: Palette; moodLabel: string; tags: string[] };
+type GeminiResponse = { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
 
-interface GeminiResponse {
-  candidates?: Array<{
-    content?: {
-      parts?: Array<{
-        text?: string;
-      }>;
-    };
-  }>;
+const songs: Song[] = [
+  { songTitle: "밤편지", artist: "아이유", palette: "warm", moodLabel: "조용한 온기", tags: ["밤", "산책", "차분", "포근", "그리움"] },
+  { songTitle: "Square (2017)", artist: "백예린", palette: "sunrise", moodLabel: "가벼운 해방감", tags: ["산뜻", "후련", "햇살", "드라이브", "설렘"] },
+  { songTitle: "TOMBOY", artist: "혁오", palette: "nocturne", moodLabel: "느슨한 밤공기", tags: ["지침", "혼자", "생각", "밤", "공허"] },
+  { songTitle: "Love Lee", artist: "AKMU", palette: "sunrise", moodLabel: "맑은 설렘", tags: ["기분좋", "신남", "산뜻", "주말", "설렘"] },
+  { songTitle: "Everything", artist: "검정치마", palette: "warm", moodLabel: "포근한 여운", tags: ["사랑", "포근", "그리움", "집", "비"] },
+  { songTitle: "Ditto", artist: "NewJeans", palette: "nocturne", moodLabel: "희미한 잔상", tags: ["겨울", "몽환", "차분", "새벽", "그리움"] },
+  { songTitle: "여행", artist: "볼빨간사춘기", palette: "sunrise", moodLabel: "가벼운 출발", tags: ["여행", "출발", "신남", "드라이브", "답답"] },
+  { songTitle: "출발", artist: "김동률", palette: "warm", moodLabel: "다정한 용기", tags: ["시작", "용기", "응원", "아침", "새로운"] },
+  { songTitle: "D (half moon)", artist: "DEAN", palette: "nocturne", moodLabel: "새벽의 빈자리", tags: ["새벽", "외로움", "몽환", "밤", "집"] },
+];
+
+function curatedRecommendations(situation: string, mood: string, referenceSong: string) {
+  const input = `${situation} ${mood} ${referenceSong}`.toLowerCase();
+  const seed = Math.abs([...input].reduce((sum, char) => sum + char.charCodeAt(0), 0));
+  const ranked = songs
+    .map((song, index) => ({ song, index, score: song.tags.reduce((total, tag) => total + (input.includes(tag) ? 2 : 0), 0) }))
+    .sort((a, b) => b.score - a.score || ((a.index + seed) % songs.length) - ((b.index + seed) % songs.length));
+  const chosen = ranked[0].score > 0
+    ? ranked.slice(0, 3).map(({ song }) => song)
+    : Array.from({ length: 3 }, (_, index) => songs[(seed + index * 2) % songs.length]);
+  const hasReference = Boolean(referenceSong);
+  const roles = ["첫 재생으로 자연스럽게 스며들", "분위기를 산뜻하게 바꿔 줄", "마지막에 여운을 남길"];
+
+  return chosen.map((song, index) => ({
+    songTitle: song.songTitle,
+    artist: song.artist,
+    shortReason: hasReference ? "좋아하는 곡의 여운을 새로운 결로 이어줘요." : `${mood} 마음에 ${roles[index]} 곡이에요.`,
+    detailReason: hasReference
+      ? `“${referenceSong}”에서 느껴지는 분위기를 출발점으로 삼아, 익숙함과 새로움이 함께 남도록 골랐어요.`
+      : `${situation}이라는 순간에 어울리면서도 세 곡이 서로 다른 온도로 이어지도록 골랐어요.`,
+    theme: song.palette,
+    themeLabel: song.moodLabel,
+    similarity: hasReference ? "감정선을 천천히 쌓아가는 분위기가 닮았어요." : null,
+    difference: hasReference ? ["멜로디를 조금 더 선명하게 이어가요.", "리듬과 목소리의 질감을 새롭게 바꿨어요.", "한층 잔잔한 여운으로 마무리돼요."][index] : null,
+  }));
 }
 
 export async function POST(request: Request) {
@@ -18,183 +48,49 @@ export async function POST(request: Request) {
     const situation = typeof body.situation === "string" ? body.situation.trim() : "";
     const mood = typeof body.mood === "string" ? body.mood.trim() : "";
     const referenceSong = typeof body.referenceSong === "string" ? body.referenceSong.trim() : "";
-
-    // 공백은 미입력 처리 & 필수 입력 검증
-    if (!situation || !mood) {
-      return NextResponse.json(
-        { error: "상황과 기분을 모두 입력해주세요." },
-        { status: 400 }
-      );
-    }
-
-    // 클라이언트 헤더 또는 서버 환경변수에서 키 획득
-    const clientKey = request.headers.get("x-gemini-api-key")?.trim();
-    const serverKey = process.env.GEMINI_API_KEY?.trim();
-    const apiKey = clientKey || serverKey;
-
-    if (!apiKey) {
-      return NextResponse.json(
-        {
-          error:
-            "Gemini API 키가 설정되지 않았습니다. 우측 상단의 'API 키 설정'에서 키를 입력하거나 서버 환경변수(GEMINI_API_KEY)를 등록해주세요.",
-          isKeyMissing: true,
-        },
-        { status: 400 }
-      );
-    }
-
+    const hasMoment = Boolean(situation && mood);
     const hasReference = Boolean(referenceSong);
-    const referencePrompt = hasReference
-      ? `기준 곡: "${referenceSong}".
-요구사항:
-1. 기준 곡을 실제로 식별하여 그 음악적 결(장르, 무드, 감성 등)을 참고하되, 기준 곡과 동일한 아티스트나 같은 곡은 절대 추천하지 마라.
-2. 실제로 존재하는 유명하거나 널리 알려진 곡 1곡을 추천하라.
-3. similarity에는 기준 곡과 닮은 점을 1문장으로 자연스럽게 작성하라.
-4. difference에는 기준 곡과 다른 점 또는 새로운 점을 1문장으로 자연스럽게 작성하라.
-만약 기준 곡의 제목이나 아티스트가 불분명하거나 식별이 어렵다면, similarity와 difference에 기준 곡과의 관계를 설명하기 어렵다는 점을 언급하거나 친숙한 곡으로 비교하라.`
-      : `기준 곡: 없음.
-similarity와 difference는 반드시 null로 지정하라.`;
+    if (!hasMoment && !hasReference) return NextResponse.json({ error: "상황과 기분, 또는 떠오르는 노래를 알려주세요." }, { status: 400 });
 
-    const prompt = `당신은 탁월한 음악 큐레이터입니다.
-첫 곡이 떠오르지 않는 사용자를 위해, 상황과 기분(그리고 선택적인 기준 곡)에 꼭 맞는 실제로 존재하는 노래 '단 1곡'을 추천해주세요.
+    const apiKey = request.headers.get("x-gemini-api-key")?.trim() || process.env.GEMINI_API_KEY?.trim();
+    if (!apiKey) return NextResponse.json({ recommendations: curatedRecommendations(situation, mood, referenceSong) });
 
-사용자 입력:
-- 상황: "${situation}"
-- 기분: "${mood}"
-- ${referencePrompt}
-
-테마(palette) 규칙:
-- "nocturne": 남색·라벤더 테마. 밤, 새벽, 몽환적, 차분함, 고요함, 지친 밤 위로
-- "sunrise": 크림색·코랄 테마. 산뜻함, 밝음, 경쾌함, 새로운 시작, 활력, 기분 전환
-- "warm": 아이보리·갈색 테마. 포근함, 따스함, 잔잔함, 커피, 나른함, 편안한 휴식
-
-반드시 마크다운이나 코드 블록 기호(\`\`\`json 등) 없이, 오직 순수한 JSON 객체 하나만 출력하세요.
-형식:
-{
-  "songTitle": "실제 존재하는 곡 제목 (정확한 표기)",
-  "artist": "가수/아티스트 이름",
-  "shortReason": "상황과 기분에 어울리는 한 줄 추천 이유 (20~40자 내외)",
-  "detailReason": "상황과 감정선을 연결하여 왜 이 곡을 추천하는지 설명하는 1~2문장의 자연스러운 문장",
-  "theme": "nocturne" | "sunrise" | "warm",
-  "themeLabel": "남색·라벤더" | "크림색·코랄" | "아이보리·갈색",
-  "similarity": ${hasReference ? '"기준 곡과 닮은 점 (한 문장)"' : "null"},
-  "difference": ${hasReference ? '"기준 곡과 다른 점 (한 문장)"' : "null"}
-}`;
-
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`;
-
-    const geminiRes = await fetch(geminiUrl, {
+    const inputInstruction = hasMoment
+      ? `상황: "${situation}"\n기분: "${mood}"\n기준 곡은 없다.`
+      : `상황과 기분 입력은 없다. 기준 곡은 "${referenceSong}"이다. 기준 곡과 같은 곡이나 같은 아티스트는 추천하지 마라.`;
+    const comparisonInstruction = hasReference
+      ? "각 곡의 similarity와 difference를 기준 곡과 비교한 한 문장으로 작성하라."
+      : "모든 similarity와 difference는 null로 반환하라.";
+    const prompt = `너는 음악 큐레이터다. 아래 입력을 바탕으로 실제 존재하는 노래 3곡을 추천하라. 아티스트를 겹치지 말고, 첫 재생·분위기 전환·여운처럼 세 곡의 역할을 다르게 구성하라.\n${inputInstruction}\n${comparisonInstruction}\n\n마크다운 없이 다음 형식의 JSON 객체만 출력하라.\n{"recommendations":[{"songTitle":"정확한 곡명","artist":"정확한 아티스트","shortReason":"짧은 추천 이유","detailReason":"입력과 연결한 1~2문장","theme":"nocturne 또는 sunrise 또는 warm","themeLabel":"2~5단어","similarity":null 또는 한 문장,"difference":null 또는 한 문장}]}\nrecommendations는 정확히 3개여야 한다.`;
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 1000,
-          responseMimeType: "application/json",
-        },
-      }),
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.8, maxOutputTokens: 1600, responseMimeType: "application/json" } }),
     });
-
-    if (!geminiRes.ok) {
-      const errorText = await geminiRes.text();
-      console.error("Gemini API error:", geminiRes.status, errorText);
-
-      if (geminiRes.status === 400 || geminiRes.status === 403) {
-        return NextResponse.json(
-          {
-            error:
-              "API 키가 올바르지 않거나 권한이 없습니다. API 키를 다시 확인해주세요.",
-            isKeyError: true,
-          },
-          { status: geminiRes.status }
-        );
-      }
-      if (geminiRes.status === 429) {
-        return NextResponse.json(
-          {
-            error:
-              "Gemini API 무료 한도를 초과했습니다. 잠시 후 다시 시도해주세요.",
-          },
-          { status: 429 }
-        );
-      }
-      return NextResponse.json(
-        {
-          error:
-            "곡을 추천하는 중 Gemini 서비스 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
-        },
-        { status: 502 }
-      );
+    if (!response.ok) {
+      if (response.status === 400 || response.status === 403) return NextResponse.json({ error: "API 키가 올바르지 않거나 권한이 없습니다.", isKeyError: true }, { status: response.status });
+      return NextResponse.json({ recommendations: curatedRecommendations(situation, mood, referenceSong) });
     }
 
-    const data: GeminiResponse = await geminiRes.json();
-    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-
-    if (!rawText) {
-      return NextResponse.json(
-        {
-          error:
-            "Gemini 응답을 읽어오지 못했습니다. 입력은 그대로 유지되니 다시 시도해주세요.",
-        },
-        { status: 502 }
-      );
-    }
-
-    // JSON 파싱 (코드펜스 제거 포함)
-    const cleanedText = rawText
-      .replace(/^```json\s*/i, "")
-      .replace(/^```\s*/i, "")
-      .replace(/\s*```$/i, "")
-      .trim();
-
-    const parsed = JSON.parse(cleanedText);
-
-    if (!parsed.songTitle || !parsed.artist) {
-      return NextResponse.json(
-        {
-          error:
-            "곡 정보를 정확히 파악하지 못했습니다. 기준 곡을 입력하셨다면 곡명과 가수를 조금 더 명확히 입력 후 다시 시도해주세요.",
-        },
-        { status: 422 }
-      );
-    }
-
-    const validPalettes: Palette[] = ["nocturne", "sunrise", "warm"];
-    const theme: Palette = validPalettes.includes(parsed.theme)
-      ? parsed.theme
-      : "nocturne";
-
-    const themeLabelMap: Record<Palette, string> = {
-      nocturne: "남색·라벤더 테마",
-      sunrise: "크림색·코랄 테마",
-      warm: "아이보리·갈색 테마",
-    };
-
-    return NextResponse.json({
-      recommendation: {
-        songTitle: String(parsed.songTitle).trim(),
-        artist: String(parsed.artist).trim(),
-        shortReason: String(
-          parsed.shortReason || "지금의 순간에 가장 어울리는 첫 곡이에요."
-        ).trim(),
-        detailReason: String(
-          parsed.detailReason || "남겨주신 상황과 기분을 바탕으로 골랐어요."
-        ).trim(),
-        theme,
-        themeLabel: themeLabelMap[theme],
-        similarity: parsed.similarity ? String(parsed.similarity).trim() : null,
-        difference: parsed.difference ? String(parsed.difference).trim() : null,
-      },
-    });
+    const data: GeminiResponse = await response.json();
+    const raw = data.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("").trim();
+    if (!raw) return NextResponse.json({ recommendations: curatedRecommendations(situation, mood, referenceSong) });
+    const parsed = JSON.parse(raw.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/\s*```$/i, ""));
+    const validThemes: Palette[] = ["nocturne", "sunrise", "warm"];
+    const recommendations = Array.isArray(parsed.recommendations) ? parsed.recommendations.slice(0, 3).map((item: Record<string, unknown>) => ({
+      songTitle: String(item.songTitle || "").trim(),
+      artist: String(item.artist || "").trim(),
+      shortReason: String(item.shortReason || "지금 듣기 좋은 곡이에요.").trim(),
+      detailReason: String(item.detailReason || "입력해 주신 취향을 바탕으로 골랐어요.").trim(),
+      theme: validThemes.includes(item.theme as Palette) ? item.theme : "nocturne",
+      themeLabel: String(item.themeLabel || "지금의 무드").trim(),
+      similarity: hasReference ? String(item.similarity || "감정의 결이 자연스럽게 이어져요.").trim() : null,
+      difference: hasReference ? String(item.difference || "새로운 리듬과 목소리를 더해요.").trim() : null,
+    })) : [];
+    if (recommendations.length < 2 || recommendations.some((item: { songTitle: string; artist: string }) => !item.songTitle || !item.artist)) return NextResponse.json({ recommendations: curatedRecommendations(situation, mood, referenceSong) });
+    return NextResponse.json({ recommendations });
   } catch (error) {
-    console.error("API error:", error);
-    return NextResponse.json(
-      {
-        error:
-          "추천을 생성하는 도중 오류가 발생했습니다. 입력하신 내용은 그대로 유지되니 잠시 후 다시 시도해주세요.",
-      },
-      { status: 500 }
-    );
+    console.error("Recommendation error", error);
+    return NextResponse.json({ error: "추천을 만드는 중 문제가 생겼어요. 입력은 그대로 두었으니 다시 시도해주세요." }, { status: 500 });
   }
 }
